@@ -29,7 +29,7 @@ func (c *basicAuthHTTPClient) Do(req *http.Request) (*http.Response, error) {
 // used.
 func HTTPClientWithBasicAuth(c HTTPClient, username, password string) HTTPClient {
 	if c == nil {
-		c = http.DefaultClient
+		c = internal.NoRedirectHttpClient
 	}
 	return &basicAuthHTTPClient{c, username, password}
 }
@@ -50,13 +50,21 @@ func NewClient(c HTTPClient, endpoint string) (*Client, error) {
 func (c *Client) FindCurrentUserPrincipal() (string, error) {
 	propfind := internal.NewPropNamePropFind(internal.CurrentUserPrincipalName)
 
-	// TODO: consider retrying on the root URI "/" if this fails, as suggested
-	// by the RFC?
-	resp, err := c.ic.PropFindFlat("", propfind)
+	var fallbackPath = []string{".well-known/caldav", ""}
+	var (
+		resp *internal.Response
+		err  error
+	)
+	for _, path := range fallbackPath {
+		resp, err = c.ic.PropFindFlat(path, propfind)
+		if err != nil {
+			continue
+		}
+		break
+	}
 	if err != nil {
 		return "", err
 	}
-
 	var prop internal.CurrentUserPrincipal
 	if err := resp.DecodeProp(&prop); err != nil {
 		return "", err
