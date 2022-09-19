@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-ical"
+
 	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/internal"
 )
@@ -66,6 +67,7 @@ type Calendar struct {
 	Name                  string
 	Description           string
 	MaxResourceSize       int64
+	ETag                  string
 	SupportedComponentSet []string
 }
 

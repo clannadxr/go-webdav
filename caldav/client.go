@@ -57,6 +57,7 @@ func (c *Client) FindCalendars(calendarHomeSet string) ([]Calendar, error) {
 		calendarDescriptionName,
 		maxResourceSizeName,
 		supportedCalendarComponentSetName,
+		internal.GetETagName,
 	)
 	ms, err := c.ic.PropFind(calendarHomeSet, internal.DepthOne, propfind)
 	if err != nil {
@@ -88,6 +89,11 @@ func (c *Client) FindCalendars(calendarHomeSet string) ([]Calendar, error) {
 			return nil, err
 		}
 
+		var etag internal.GetETag
+		if err := resp.DecodeProp(&etag); err != nil && !internal.IsNotFound(err) {
+			return nil, err
+		}
+
 		var maxResSize maxResourceSize
 		if err := resp.DecodeProp(&maxResSize); err != nil && !internal.IsNotFound(err) {
 			return nil, err
@@ -111,6 +117,7 @@ func (c *Client) FindCalendars(calendarHomeSet string) ([]Calendar, error) {
 			Name:                  dispName.Name,
 			Description:           desc.Description,
 			MaxResourceSize:       maxResSize.Size,
+			ETag:                  etag.ETag.String(),
 			SupportedComponentSet: compNames,
 		})
 	}
@@ -153,6 +160,12 @@ func encodeCalendarReq(c *CalendarCompRequest) (*internal.Prop, error) {
 	getLastModReq := internal.NewRawXMLElement(internal.GetLastModifiedName, nil, nil)
 	getETagReq := internal.NewRawXMLElement(internal.GetETagName, nil, nil)
 	return internal.EncodeProp(&calDataReq, getLastModReq, getETagReq)
+}
+
+func encodeCalendarReqWithoutData() (*internal.Prop, error) {
+	getLastModReq := internal.NewRawXMLElement(internal.GetLastModifiedName, nil, nil)
+	getETagReq := internal.NewRawXMLElement(internal.GetETagName, nil, nil)
+	return internal.EncodeProp(getLastModReq, getETagReq)
 }
 
 func encodeCompFilter(filter *CompFilter) *compFilter {
@@ -215,6 +228,36 @@ func decodeCalendarObjectList(ms *internal.MultiStatus) ([]CalendarObject, error
 	return addrs, nil
 }
 
+func decodeCalendarObjectListWithoutData(ms *internal.MultiStatus) ([]CalendarObject, error) {
+	addrs := make([]CalendarObject, 0, len(ms.Responses))
+	for _, resp := range ms.Responses {
+		path, err := resp.Path()
+		if err != nil {
+			return nil, err
+		}
+		var getLastMod internal.GetLastModified
+		if err := resp.DecodeProp(&getLastMod); err != nil && !internal.IsNotFound(err) {
+			return nil, err
+		}
+		var getETag internal.GetETag
+		if err := resp.DecodeProp(&getETag); err != nil && !internal.IsNotFound(err) {
+			return nil, err
+		}
+		var getContentLength internal.GetContentLength
+		if err := resp.DecodeProp(&getContentLength); err != nil && !internal.IsNotFound(err) {
+			return nil, err
+		}
+		addrs = append(addrs, CalendarObject{
+			Path:          path,
+			ModTime:       time.Time(getLastMod.LastModified),
+			ContentLength: getContentLength.Length,
+			ETag:          string(getETag.ETag),
+		})
+	}
+
+	return addrs, nil
+}
+
 func (c *Client) QueryCalendar(calendar string, query *CalendarQuery) ([]CalendarObject, error) {
 	propReq, err := encodeCalendarReq(&query.CompRequest)
 	if err != nil {
@@ -235,6 +278,27 @@ func (c *Client) QueryCalendar(calendar string, query *CalendarQuery) ([]Calenda
 	}
 
 	return decodeCalendarObjectList(ms)
+}
+
+func (c *Client) QueryCalendarWithoutData(calendar string, filter CompFilter) ([]CalendarObject, error) {
+	propReq, err := encodeCalendarReqWithoutData()
+	if err != nil {
+		return nil, err
+	}
+
+	calendarQuery := calendarQuery{Prop: propReq}
+	calendarQuery.Filter.CompFilter = *encodeCompFilter(&filter)
+	req, err := c.ic.NewXMLRequest("REPORT", calendar, &calendarQuery)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Depth", "1")
+
+	ms, err := c.ic.DoMultiStatus(req)
+	if err != nil {
+		return nil, err
+	}
+	return decodeCalendarObjectListWithoutData(ms)
 }
 
 func (c *Client) MultiGetCalendar(path string, multiGet *CalendarMultiGet) ([]CalendarObject, error) {
