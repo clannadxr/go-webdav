@@ -27,9 +27,9 @@ CLIENTPIDMAP:1;urn:uuid:53e374d9-337e-4727-8803-a1e9c14e0551
 END:VCARD`
 	alicePath = "urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1.vcf"
 
-	currentUserPrincipalKey = "test:currentUserPrincipal"
-	homeSetPathKey          = "test:homeSetPath"
-	addressBookPathKey      = "test:addressBookPath"
+	currentUserPrincipalKey = contextKey("test:currentUserPrincipal")
+	homeSetPathKey          = contextKey("test:homeSetPath")
+	addressBookPathKey      = contextKey("test:addressBookPath")
 )
 
 func (*testBackend) CurrentUserPrincipal(ctx context.Context) (string, error) {
@@ -92,39 +92,29 @@ func (*testBackend) DeleteAddressObject(ctx context.Context, path string) error 
 func TestAddressBookDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		name                 string
+		prefix               string
 		currentUserPrincipal string
 		homeSetPath          string
 		addressBookPath      string
 	}{
-		// TODO this used to work, but is currently broken.
-		//{
-		//	name:  "all-at-root",
-		//	currentUserPrincipal: "/",
-		//	homeSetPath: "/",
-		//	addressBookPath: "/",
-		//},
 		{
-			name:                 "simple-home-set-path",
-			currentUserPrincipal: "/",
-			homeSetPath:          "/contacts/",
-			addressBookPath:      "/contacts/",
-		},
-		{
-			name:                 "all-at-different-paths",
-			currentUserPrincipal: "/",
-			homeSetPath:          "/contacts/",
-			addressBookPath:      "/contacts/work",
-		},
-		{
-			name:                 "nothing-at-root",
+			name:                 "simple",
+			prefix:               "",
 			currentUserPrincipal: "/test/",
 			homeSetPath:          "/test/contacts/",
 			addressBookPath:      "/test/contacts/private",
 		},
+		{
+			name:                 "prefix",
+			prefix:               "/dav",
+			currentUserPrincipal: "/dav/test/",
+			homeSetPath:          "/dav/test/contacts/",
+			addressBookPath:      "/dav/test/contacts/private",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
-			h := Handler{&testBackend{}}
+			h := Handler{&testBackend{}, tc.prefix}
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				ctx := r.Context()
 				ctx = context.WithValue(ctx, currentUserPrincipalKey, tc.currentUserPrincipal)
